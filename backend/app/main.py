@@ -1,29 +1,55 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 from typing import List
+from app.scanner import scan_dependencies  # <-- new import
 
+# --- App instance ---
 app = FastAPI(title="Attestation Policy Enforcer API")
 
 # --- Models ---
 class LicenseReport(BaseModel):
-    allowed_licenses: List[str]
+    detected: List[str]
     violations: List[str]
     compliance_score: float  # percentage 0–100
 
-# --- Routes ---
+
+# --- Health check route ---
+@app.get("/health")
+def health_check():
+    """
+    Simple endpoint to verify the backend is running.
+    Useful for CI/CD, monitoring, and debugging.
+    """
+    return {"status": "ok"}
+
+
+# --- Root route ---
 @app.get("/")
 def root():
     return {"message": "Attestation API running 🚀"}
 
+
+# --- Real scan route with file upload ---
 @app.post("/scan", response_model=LicenseReport)
-def scan_project():
+async def scan_project(file: UploadFile = File(...)):
     """
-    Simulated license scan endpoint.
-    Later this will analyze dependencies or upload a manifest file.
+    Accepts a dependency file (like requirements.txt or package.json),
+    scans it for allowed/forbidden licenses, and returns a compliance score.
     """
-    fake_data = LicenseReport(
-        allowed_licenses=["MIT", "Apache-2.0", "BSD-3-Clause"],
-        violations=["GPL-3.0", "LGPL-2.1"],
-        compliance_score=82.5
+    # Read uploaded file
+    content = await file.read()
+    text = content.decode("utf-8")
+
+    # Run scanner logic
+    result = scan_dependencies(text)
+
+    # Simple scoring logic
+    compliance_score = 100 - (len(result["violations"]) * 20)
+    compliance_score = max(compliance_score, 0)
+
+    # Return structured report
+    return LicenseReport(
+        detected=result["detected"],
+        violations=result["violations"],
+        compliance_score=compliance_score
     )
-    return fake_data
